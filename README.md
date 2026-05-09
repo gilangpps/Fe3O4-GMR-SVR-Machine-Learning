@@ -253,24 +253,6 @@ All dependencies are open-source and available through PyPI.
 4. **Time-Series Analysis**: Temporal correlation assessment and autoregressive models
 5. **Hardware Integration**: Firmware optimization and real-time data streaming enhancements
 
-## Author and Attribution
-
-Developed within the MoRA research initiative, supported by The AIR Funds.
-
-## Citation
-
-If this framework is utilized in academic publications, please cite:
-
-```
-Fe3O4 GMR-SVM Machine Learning Framework. 
-MoRA Research Initiative, The AIR Funds. 
-[Year]. [Institution/Organization].
-```
-
-## License
-
-[Specify appropriate license if applicable]
-
 ## Contact and Support
 
 For inquiries regarding methodology, implementation details, or research collaboration opportunities, please contact the research team.

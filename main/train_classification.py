@@ -41,28 +41,15 @@ sns.set_theme(style="whitegrid", context="talk")
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
 _HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(_HERE)
 
-DATA_PATH = os.path.join(_HERE, "090526_fe3o4-data-gmr.xlsx")
+DATA_PATH = os.path.join(REPO_ROOT, "090526_fe3o4-data-gmr.xlsx")
 SHEET_NAME = "Data_Acquisition_Processed"
 
 BASE_OUT_DIR = os.path.join(_HERE, "output_results", "classification")
 MODEL_DIR = os.path.join(_HERE, "models", "classification")
 
-PLOT_DIR = os.path.join(BASE_OUT_DIR, "plots")
-INDIVIDUAL_PLOT_DIR = os.path.join(PLOT_DIR, "individual")
-COMPARISON_PLOT_DIR = os.path.join(PLOT_DIR, "comparison")
-EXCEL_DIR = os.path.join(BASE_OUT_DIR, "excel")
-JSON_DIR = os.path.join(BASE_OUT_DIR, "json")
-
-for d in [
-    MODEL_DIR,
-    PLOT_DIR,
-    INDIVIDUAL_PLOT_DIR,
-    COMPARISON_PLOT_DIR,
-    EXCEL_DIR,
-    JSON_DIR,
-]:
-    os.makedirs(d, exist_ok=True)
+os.makedirs(MODEL_DIR, exist_ok=True)
 
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
@@ -90,6 +77,28 @@ COLORS = {
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
+
+def dirs_for_classification_model(base_out, model_name):
+    """output_results/classification/<Model>/{excel,json,plots}"""
+    root = os.path.join(base_out, model_name)
+    return {
+        "root": root,
+        "excel": os.path.join(root, "excel"),
+        "json": os.path.join(root, "json"),
+        "plots": os.path.join(root, "plots"),
+    }
+
+
+def dirs_classification_comparison(base_out):
+    """output_results/classification/comparison/{excel,json,plots}"""
+    root = os.path.join(base_out, "comparison")
+    return {
+        "root": root,
+        "excel": os.path.join(root, "excel"),
+        "json": os.path.join(root, "json"),
+        "plots": os.path.join(root, "plots"),
+    }
+
 def style_header(cell, bg="1E40AF"):
     cell.font = Font(bold=True, color="FFFFFF", name="Arial", size=10)
     cell.fill = PatternFill("solid", start_color=bg)
@@ -112,6 +121,11 @@ def style_cell(cell):
     )
 
 def load_data(path, sheet):
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"Data file not found: {path}\n"
+            "Please place 090526_fe3o4-data-gmr.xlsx in the repository root."
+        )
     raw = pd.read_excel(path, sheet_name=sheet, header=None)
     data = raw.iloc[2:].reset_index(drop=True)
 
@@ -145,9 +159,20 @@ def build_models():
         ),
     }
 
+def _json_sanitize(obj):
+    if isinstance(obj, dict):
+        return {k: _json_sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_sanitize(v) for v in obj]
+    if isinstance(obj, (np.integer, np.floating)):
+        return float(obj)
+    return obj
+
+
 def save_metrics_json(payload, output_path):
+    ensure_dir(os.path.dirname(output_path))
     with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=4, ensure_ascii=False)
+        json.dump(_json_sanitize(payload), f, indent=4, ensure_ascii=False)
 
 # ─── EXCEL OUTPUT ─────────────────────────────────────────────────────────────
 def write_metrics_excel(all_metrics, cv_results, report_dicts, output_path):
@@ -233,21 +258,12 @@ def write_metrics_excel(all_metrics, cv_results, report_dicts, output_path):
     print(f"  [Excel] Saved -> {output_path}")
 
 # ─── VISUALIZATION ────────────────────────────────────────────────────────────
-def plot_classification_individual(model_name, metrics, cm, y_test, y_pred, report, output_dir):
-    ensure_dir(output_dir)
-
+def plot_classification_individual(model_name, metrics, cm, y_test, y_pred, report, plots_dir):
+    ensure_dir(plots_dir)
     color = COLORS[model_name]
-    fig = plt.figure(figsize=(18, 12))
-    fig.suptitle(
-        f"{model_name} Classification — GMR Fe₃O₄ Sensor (ΔB, mT)",
-        fontsize=15,
-        fontweight="bold",
-        y=0.98,
-    )
-    gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.45, wspace=0.4)
 
-    # 1. Confusion Matrix
-    ax1 = fig.add_subplot(gs[0, 0])
+    # 1. Confusion matrix
+    _, ax1 = plt.subplots(figsize=(8, 6.5))
     sns.heatmap(
         cm,
         annot=True,
@@ -259,16 +275,20 @@ def plot_classification_individual(model_name, metrics, cm, y_test, y_pred, repo
         linewidths=0.5,
         annot_kws={"size": 8},
     )
-    ax1.set_title("Confusion Matrix", fontweight="bold")
+    ax1.set_title(f"{model_name} — Confusion Matrix", fontweight="bold")
     ax1.set_xlabel("Predicted")
     ax1.set_ylabel("Actual")
     ax1.tick_params(axis="x", rotation=45)
+    plt.tight_layout()
+    p1 = os.path.join(plots_dir, "confusion_matrix.png")
+    plt.savefig(p1, dpi=150, bbox_inches="tight")
+    plt.close()
 
     # 2. Per-class F1
-    ax2 = fig.add_subplot(gs[0, 1])
+    _, ax2 = plt.subplots(figsize=(10, 5.5))
     f1s = [report[c]["f1-score"] for c in CLASS_NAMES]
     bars = ax2.bar(CLASS_NAMES, f1s, color=color, alpha=0.85, edgecolor="white", linewidth=0.7)
-    ax2.set_title("Per-Class F1-Score", fontweight="bold")
+    ax2.set_title(f"{model_name} — Per-Class F1-Score", fontweight="bold")
     ax2.set_ylim(0, 1.1)
     ax2.set_ylabel("F1-Score")
     ax2.tick_params(axis="x", rotation=45)
@@ -281,28 +301,36 @@ def plot_classification_individual(model_name, metrics, cm, y_test, y_pred, repo
             va="bottom",
             fontsize=8,
         )
+    plt.tight_layout()
+    p2 = os.path.join(plots_dir, "f1-score.png")
+    plt.savefig(p2, dpi=150, bbox_inches="tight")
+    plt.close()
 
-    # 3. Per-class Precision & Recall
-    ax3 = fig.add_subplot(gs[0, 2])
+    # 3. Precision & Recall per class
+    _, ax3 = plt.subplots(figsize=(10, 5.5))
     prec = [report[c]["precision"] for c in CLASS_NAMES]
     rec = [report[c]["recall"] for c in CLASS_NAMES]
     x = np.arange(len(CLASS_NAMES))
     ax3.bar(x - 0.2, prec, 0.35, label="Precision", color=color, alpha=0.85)
     ax3.bar(x + 0.2, rec, 0.35, label="Recall", color="#7C3AED", alpha=0.85)
-    ax3.set_title("Per-Class Precision & Recall", fontweight="bold")
+    ax3.set_title(f"{model_name} — Per-Class Precision & Recall", fontweight="bold")
     ax3.set_xticks(x)
     ax3.set_xticklabels(CLASS_NAMES, rotation=45)
     ax3.set_ylim(0, 1.2)
     ax3.set_ylabel("Score")
     ax3.legend()
+    plt.tight_layout()
+    p3 = os.path.join(plots_dir, "precision-recall.png")
+    plt.savefig(p3, dpi=150, bbox_inches="tight")
+    plt.close()
 
-    # 4. Summary metrics
-    ax4 = fig.add_subplot(gs[1, 0])
+    # 4. Overall metrics summary
+    _, ax4 = plt.subplots(figsize=(9, 5.5))
     metric_names = ["Accuracy", "Precision\n(macro)", "Recall\n(macro)", "F1\n(macro)", "ROC-AUC"]
     metric_vals = [metrics["accuracy"], metrics["precision"], metrics["recall"], metrics["f1"], metrics["roc_auc"]]
     bars2 = ax4.bar(metric_names, metric_vals, color=color, alpha=0.85, edgecolor="white")
     ax4.set_ylim(0, 1.15)
-    ax4.set_title("Overall Metrics Summary", fontweight="bold")
+    ax4.set_title(f"{model_name} — Overall Metrics Summary", fontweight="bold")
     ax4.set_ylabel("Score")
     for bar, v in zip(bars2, metric_vals):
         ax4.text(
@@ -313,9 +341,13 @@ def plot_classification_individual(model_name, metrics, cm, y_test, y_pred, repo
             va="bottom",
             fontsize=8,
         )
+    plt.tight_layout()
+    p4 = os.path.join(plots_dir, "overall-metrics.png")
+    plt.savefig(p4, dpi=150, bbox_inches="tight")
+    plt.close()
 
-    # 5. Actual vs Predicted scatter with jitter
-    ax5 = fig.add_subplot(gs[1, 1])
+    # 5. Actual vs Predicted (jitter)
+    _, ax5 = plt.subplots(figsize=(7, 6))
     rng = np.random.default_rng(RANDOM_STATE)
     jitter = rng.uniform(-0.3, 0.3, len(y_test))
     colors_pt = [color if p == a else "#F87171" for p, a in zip(y_pred, y_test)]
@@ -323,29 +355,33 @@ def plot_classification_individual(model_name, metrics, cm, y_test, y_pred, repo
     ax5.plot([5, 50], [5, 50], "k--", lw=1.5, label="Ideal")
     ax5.set_xlabel("Actual Concentration (mg/mL)")
     ax5.set_ylabel("Predicted Concentration (mg/mL)")
-    ax5.set_title("Actual vs Predicted", fontweight="bold")
+    ax5.set_title(f"{model_name} — Actual vs Predicted", fontweight="bold")
     ax5.set_xticks(CONCENTRATIONS)
     ax5.set_yticks(CONCENTRATIONS)
     ax5.legend()
+    plt.tight_layout()
+    p5 = os.path.join(plots_dir, "actual-vs-predicted.png")
+    plt.savefig(p5, dpi=150, bbox_inches="tight")
+    plt.close()
 
-    # 6. Prediction distribution
-    ax6 = fig.add_subplot(gs[1, 2])
+    # 6. Sample counts
+    _, ax6 = plt.subplots(figsize=(10, 5.5))
     counts_actual = [np.sum(y_test == c) for c in CONCENTRATIONS]
     counts_pred = [np.sum(y_pred == c) for c in CONCENTRATIONS]
-    x = np.arange(len(CLASS_NAMES))
-    ax6.bar(x - 0.2, counts_actual, 0.35, label="Actual", color="#64748B", alpha=0.85)
-    ax6.bar(x + 0.2, counts_pred, 0.35, label="Predicted", color=color, alpha=0.85)
-    ax6.set_xticks(x)
+    xb = np.arange(len(CLASS_NAMES))
+    ax6.bar(xb - 0.2, counts_actual, 0.35, label="Actual", color="#64748B", alpha=0.85)
+    ax6.bar(xb + 0.2, counts_pred, 0.35, label="Predicted", color=color, alpha=0.85)
+    ax6.set_xticks(xb)
     ax6.set_xticklabels(CLASS_NAMES, rotation=45)
-    ax6.set_title("Sample Count: Actual vs Predicted", fontweight="bold")
+    ax6.set_title(f"{model_name} — Sample Count: Actual vs Predicted", fontweight="bold")
     ax6.set_ylabel("Count")
     ax6.legend()
-
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
-    out_path = os.path.join(output_dir, f"classification_{model_name.lower()}_analysis.png")
-    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.tight_layout()
+    p6 = os.path.join(plots_dir, "sample-count-actual-vs-predicted.png")
+    plt.savefig(p6, dpi=150, bbox_inches="tight")
     plt.close()
-    print(f"  [Plot] Saved -> {out_path}")
+
+    print(f"  [Plots] Saved -> {plots_dir} (6 figures: confusion_matrix, f1-score, …)")
 
 def plot_classification_comparison(all_metrics, cv_results, report_dicts, cm_dict, y_test, preds, output_dir):
     ensure_dir(output_dir)
@@ -521,6 +557,10 @@ def main():
         joblib.dump(model, model_path)
         print(f"    [Model] Saved -> {model_path}")
 
+        out = dirs_for_classification_model(BASE_OUT_DIR, name)
+        for key in ("excel", "json", "plots"):
+            ensure_dir(out[key])
+
         plot_classification_individual(
             model_name=name,
             metrics=all_metrics[name],
@@ -528,13 +568,29 @@ def main():
             y_test=y_test,
             y_pred=y_pred,
             report=report,
-            output_dir=INDIVIDUAL_PLOT_DIR,
+            plots_dir=out["plots"],
         )
 
-    excel_path = os.path.join(EXCEL_DIR, "classification_metrics.xlsx")
+        write_metrics_excel(
+            {name: all_metrics[name]},
+            {name: cv_results[name]},
+            {name: report_dicts[name]},
+            os.path.join(out["excel"], "classification_metrics.xlsx"),
+        )
+        save_metrics_json(
+            {"model": name, "metrics": all_metrics[name], "classification_report": report_dicts[name]},
+            os.path.join(out["json"], "classification_metrics.json"),
+        )
+        print(f"    [JSON] Saved -> {out['json']}")
+
+    comp = dirs_classification_comparison(BASE_OUT_DIR)
+    for key in ("excel", "json", "plots"):
+        ensure_dir(comp[key])
+
+    excel_path = os.path.join(comp["excel"], "classification_metrics.xlsx")
     write_metrics_excel(all_metrics, cv_results, report_dicts, excel_path)
 
-    json_path = os.path.join(JSON_DIR, "classification_metrics.json")
+    json_path = os.path.join(comp["json"], "classification_metrics.json")
     save_metrics_json(all_metrics, json_path)
     print(f"  [JSON] Saved -> {json_path}")
 
@@ -546,7 +602,7 @@ def main():
         cm_dict=cm_dict,
         y_test=y_test,
         preds=preds,
-        output_dir=COMPARISON_PLOT_DIR,
+        output_dir=comp["plots"],
     )
 
     print("\n" + "=" * 60)

@@ -38,28 +38,15 @@ sns.set_theme(style="whitegrid", context="talk")
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
 _HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(_HERE)
 
-DATA_PATH = os.path.join(_HERE, "090526_fe3o4-data-gmr.xlsx")
+DATA_PATH = os.path.join(REPO_ROOT, "090526_fe3o4-data-gmr.xlsx")
 SHEET_NAME = "Data_Acquisition_Processed"
 
 BASE_OUT_DIR = os.path.join(_HERE, "output_results", "regression")
 MODEL_DIR = os.path.join(_HERE, "models", "regression")
 
-PLOT_DIR = os.path.join(BASE_OUT_DIR, "plots")
-INDIVIDUAL_PLOT_DIR = os.path.join(PLOT_DIR, "individual")
-COMPARISON_PLOT_DIR = os.path.join(PLOT_DIR, "comparison")
-EXCEL_DIR = os.path.join(BASE_OUT_DIR, "excel")
-JSON_DIR = os.path.join(BASE_OUT_DIR, "json")
-
-for d in [
-    MODEL_DIR,
-    PLOT_DIR,
-    INDIVIDUAL_PLOT_DIR,
-    COMPARISON_PLOT_DIR,
-    EXCEL_DIR,
-    JSON_DIR,
-]:
-    os.makedirs(d, exist_ok=True)
+os.makedirs(MODEL_DIR, exist_ok=True)
 
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
@@ -85,6 +72,28 @@ COLORS = {
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
+
+def dirs_for_regression_model(base_out, model_name):
+    """output_results/regression/<Model>/{excel,json,plots}"""
+    root = os.path.join(base_out, model_name)
+    return {
+        "root": root,
+        "excel": os.path.join(root, "excel"),
+        "json": os.path.join(root, "json"),
+        "plots": os.path.join(root, "plots"),
+    }
+
+
+def dirs_regression_comparison(base_out):
+    """output_results/regression/comparison/{excel,json,plots}"""
+    root = os.path.join(base_out, "comparison")
+    return {
+        "root": root,
+        "excel": os.path.join(root, "excel"),
+        "json": os.path.join(root, "json"),
+        "plots": os.path.join(root, "plots"),
+    }
+
 def style_header(cell, bg="7C2D12"):
     cell.font = Font(bold=True, color="FFFFFF", name="Arial", size=10)
     cell.fill = PatternFill("solid", start_color=bg)
@@ -107,6 +116,11 @@ def style_cell(cell):
     )
 
 def load_data(path, sheet):
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"Data file not found: {path}\n"
+            "Please place 090526_fe3o4-data-gmr.xlsx in the repository root."
+        )
     raw = pd.read_excel(path, sheet_name=sheet, header=None)
     data = raw.iloc[2:].reset_index(drop=True)
 
@@ -140,9 +154,20 @@ def build_models():
         ),
     }
 
+def _json_sanitize(obj):
+    if isinstance(obj, dict):
+        return {k: _json_sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_sanitize(v) for v in obj]
+    if isinstance(obj, (np.integer, np.floating)):
+        return float(obj)
+    return obj
+
+
 def save_metrics_json(payload, output_path):
+    ensure_dir(os.path.dirname(output_path))
     with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=4, ensure_ascii=False)
+        json.dump(_json_sanitize(payload), f, indent=4, ensure_ascii=False)
 
 # ─── EXCEL OUTPUT ─────────────────────────────────────────────────────────────
 def write_metrics_excel(all_metrics, cv_results, residual_dict, output_path):
@@ -199,64 +224,68 @@ def write_metrics_excel(all_metrics, cv_results, residual_dict, output_path):
     print(f"  [Excel] Saved -> {output_path}")
 
 # ─── VISUALIZATION ────────────────────────────────────────────────────────────
-def plot_regression_individual(model_name, metrics, y_test, y_pred, residuals, cv_scores, output_dir):
-    ensure_dir(output_dir)
-
+def plot_regression_individual(model_name, metrics, y_test, y_pred, residuals, cv_scores, plots_dir):
+    ensure_dir(plots_dir)
     color = COLORS[model_name]
-    fig = plt.figure(figsize=(18, 12))
-    fig.suptitle(
-        f"{model_name} Regression — GMR Fe₃O₄ Sensor (ΔB, mT)",
-        fontsize=15,
-        fontweight="bold",
-        y=0.98,
-    )
-    gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.45, wspace=0.4)
 
     # 1. Actual vs Predicted
-    ax1 = fig.add_subplot(gs[0, 0])
+    _, ax1 = plt.subplots(figsize=(7, 6))
     ax1.scatter(y_test, y_pred, alpha=0.45, s=22, color=color, edgecolors="none")
     lims = [min(y_test.min(), y_pred.min()) - 1, max(y_test.max(), y_pred.max()) + 1]
     ax1.plot(lims, lims, "k--", lw=1.5, label="Ideal (y=x)")
     ax1.set_xlabel("Actual Concentration (mg/mL)")
     ax1.set_ylabel("Predicted Concentration (mg/mL)")
-    ax1.set_title(f"Actual vs Predicted\nR² = {metrics['r2']:.4f}", fontweight="bold")
+    ax1.set_title(f"{model_name} — Actual vs Predicted (R² = {metrics['r2']:.4f})", fontweight="bold")
     ax1.legend(fontsize=8)
+    plt.tight_layout()
+    plt.savefig(os.path.join(plots_dir, "actual-vs-predicted.png"), dpi=150, bbox_inches="tight")
+    plt.close()
 
     # 2. Residuals vs Actual
-    ax2 = fig.add_subplot(gs[0, 1])
+    _, ax2 = plt.subplots(figsize=(7, 6))
     ax2.scatter(y_test, residuals, alpha=0.45, s=22, color=color, edgecolors="none")
     ax2.axhline(0, color="black", lw=1.5, ls="--")
     ax2.set_xlabel("Actual Concentration (mg/mL)")
     ax2.set_ylabel("Residual (mg/mL)")
-    ax2.set_title("Residuals vs Actual", fontweight="bold")
+    ax2.set_title(f"{model_name} — Residuals vs Actual", fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(os.path.join(plots_dir, "residuals-vs-actual.png"), dpi=150, bbox_inches="tight")
+    plt.close()
 
     # 3. Residual distribution
-    ax3 = fig.add_subplot(gs[0, 2])
+    _, ax3 = plt.subplots(figsize=(7, 5.5))
     ax3.hist(residuals, bins=30, color=color, alpha=0.75, edgecolor="white")
     ax3.axvline(0, color="black", lw=1.5, ls="--")
     ax3.set_xlabel("Residual (mg/mL)")
     ax3.set_ylabel("Count")
-    ax3.set_title("Residual Distribution", fontweight="bold")
+    ax3.set_title(f"{model_name} — Residual Distribution", fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(os.path.join(plots_dir, "residual-distribution.png"), dpi=150, bbox_inches="tight")
+    plt.close()
 
     # 4. Summary metrics
-    ax4 = fig.add_subplot(gs[1, 0])
+    _, ax4 = plt.subplots(figsize=(8, 5.5))
     metric_names = ["MAE", "RMSE", "R²", "MAPE (%)"]
     metric_vals = [metrics["mae"], metrics["rmse"], metrics["r2"], metrics["mape"]]
     bars = ax4.bar(metric_names, metric_vals, color=color, alpha=0.85, edgecolor="white")
-    ax4.set_title("Overall Metrics Summary", fontweight="bold")
+    ax4.set_title(f"{model_name} — Overall Metrics Summary", fontweight="bold")
     ax4.set_ylabel("Value")
+    mv_max = max(metric_vals) if metric_vals else 1.0
     for bar, v in zip(bars, metric_vals):
         ax4.text(
             bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + max(metric_vals) * 0.01,
+            bar.get_height() + mv_max * 0.01,
             f"{v:.4f}",
             ha="center",
             va="bottom",
             fontsize=8,
         )
+    plt.tight_layout()
+    plt.savefig(os.path.join(plots_dir, "overall-metrics.png"), dpi=150, bbox_inches="tight")
+    plt.close()
 
     # 5. Absolute error per concentration class
-    ax5 = fig.add_subplot(gs[1, 1])
+    _, ax5 = plt.subplots(figsize=(9, 5.5))
     groups = {c: [] for c in CONCENTRATIONS}
     for actual, pred in zip(y_test, y_pred):
         c_key = int(round(actual))
@@ -270,22 +299,24 @@ def plot_regression_individual(model_name, metrics, y_test, y_pred, residuals, c
         patch.set_alpha(0.7)
     ax5.set_xlabel("Concentration (mg/mL)")
     ax5.set_ylabel("Absolute Error (mg/mL)")
-    ax5.set_title("Error per Concentration Class", fontweight="bold")
+    ax5.set_title(f"{model_name} — Error per Concentration Class", fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(os.path.join(plots_dir, "error-per-concentration.png"), dpi=150, bbox_inches="tight")
+    plt.close()
 
     # 6. CV R² across folds
-    ax6 = fig.add_subplot(gs[1, 2])
+    _, ax6 = plt.subplots(figsize=(8, 5))
     ax6.bar([f"Fold {i+1}" for i in range(len(cv_scores))], cv_scores, color=color, alpha=0.85, edgecolor="white")
     ax6.axhline(np.mean(cv_scores), color="black", ls="--", lw=1.5, label=f"Mean = {np.mean(cv_scores):.4f}")
-    ax6.set_title(f"{CV_FOLDS}-Fold CV R²", fontweight="bold")
+    ax6.set_title(f"{model_name} — {CV_FOLDS}-Fold CV R²", fontweight="bold")
     ax6.set_ylabel("R²")
     ax6.legend(fontsize=8)
     ax6.tick_params(axis="x", rotation=30)
-
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
-    out_path = os.path.join(output_dir, f"regression_{model_name.lower()}_analysis.png")
-    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.tight_layout()
+    plt.savefig(os.path.join(plots_dir, "cv-r2-folds.png"), dpi=150, bbox_inches="tight")
     plt.close()
-    print(f"  [Plot] Saved -> {out_path}")
+
+    print(f"  [Plots] Saved -> {plots_dir} (6 figures: actual-vs-predicted, residuals, …)")
 
 def plot_regression_comparison(all_metrics, cv_results, y_test, preds, output_dir):
     ensure_dir(output_dir)
@@ -428,6 +459,10 @@ def main():
         joblib.dump(model, model_path)
         print(f"    [Model] Saved -> {model_path}")
 
+        out = dirs_for_regression_model(BASE_OUT_DIR, name)
+        for key in ("excel", "json", "plots"):
+            ensure_dir(out[key])
+
         plot_regression_individual(
             model_name=name,
             metrics=all_metrics[name],
@@ -435,13 +470,29 @@ def main():
             y_pred=y_pred,
             residuals=res,
             cv_scores=cv_sc,
-            output_dir=INDIVIDUAL_PLOT_DIR,
+            plots_dir=out["plots"],
         )
 
-    excel_path = os.path.join(EXCEL_DIR, "regression_metrics.xlsx")
+        write_metrics_excel(
+            {name: all_metrics[name]},
+            {name: cv_results[name]},
+            {name: residual_dict[name]},
+            os.path.join(out["excel"], "regression_metrics.xlsx"),
+        )
+        save_metrics_json(
+            {"model": name, "metrics": all_metrics[name]},
+            os.path.join(out["json"], "regression_metrics.json"),
+        )
+        print(f"    [JSON] Saved -> {out['json']}")
+
+    comp = dirs_regression_comparison(BASE_OUT_DIR)
+    for key in ("excel", "json", "plots"):
+        ensure_dir(comp[key])
+
+    excel_path = os.path.join(comp["excel"], "regression_metrics.xlsx")
     write_metrics_excel(all_metrics, cv_results, residual_dict, excel_path)
 
-    json_path = os.path.join(JSON_DIR, "regression_metrics.json")
+    json_path = os.path.join(comp["json"], "regression_metrics.json")
     save_metrics_json(all_metrics, json_path)
     print(f"  [JSON] Saved -> {json_path}")
 
@@ -451,7 +502,7 @@ def main():
         cv_results=cv_results,
         y_test=y_test,
         preds=preds,
-        output_dir=COMPARISON_PLOT_DIR,
+        output_dir=comp["plots"],
     )
 
     print("\n" + "=" * 60)

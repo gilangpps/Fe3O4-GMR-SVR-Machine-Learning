@@ -46,11 +46,12 @@ def tegangan_ke_b(v):
 # MODEL SVR TERSIMPAN
 # ============================================================
 _HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(_HERE)
 
 SVR_MODEL_CANDIDATES = [
-    os.path.join(_HERE, "models", "regression", "SVR", "reg_svr.pkl"),
-    os.path.join(_HERE, "models", "regression", "SVR", "regressor_svr.pkl"),
-    os.path.join(_HERE, "models", "regression", "SVM", "reg_svr.pkl"),
+    os.path.join(REPO_ROOT, "models", "regression", "SVR", "reg_svr.pkl"),
+    os.path.join(REPO_ROOT, "models", "regression", "SVR", "regressor_svr.pkl"),
+    os.path.join(REPO_ROOT, "models", "regression", "SVM", "reg_svr.pkl"),
 ]
 
 svr_model = None

@@ -18,10 +18,12 @@ Iron oxide nanoparticles (Fe₃O₄) are ferrimagnetic materials that exhibit pr
 
 ```
 Fe3O4-GMR-SVM-Machine-Learning/
-├── train_classification.py          # Classification model training pipeline
-├── train_regression.py              # Regression model training pipeline
-├── inference_SVR.py                 # Real-time inference interface with GUI
-├── models/                          # Trained model storage
+├── main/
+│   ├── train_classification.py          # Classification model training pipeline
+│   ├── train_regression.py              # Regression model training pipeline
+│   ├── inference_SVR.py                 # Real-time inference interface with GUI (Publisher)
+│   └── inference_subscriber.py          # MQTT subscriber for real-time data reception and concentration prediction
+├── models/                              # Trained model storage
 │   ├── classification/
 │   │   ├── SVM/
 │   │   ├── KNN/
@@ -30,7 +32,7 @@ Fe3O4-GMR-SVM-Machine-Learning/
 │       ├── SVR/
 │       ├── KNN/
 │       └── RandomForest/
-├── output_results/                  # Comprehensive results and visualizations
+├── output_results/                      # Comprehensive results and visualizations
 │   ├── classification/
 │   │   ├── json/
 │   │   ├── excel/
@@ -39,7 +41,8 @@ Fe3O4-GMR-SVM-Machine-Learning/
 │       ├── json/
 │       ├── excel/
 │       └── plots/
-└── README.md                        # This file
+├── requirements.txt                     # Python dependencies
+└── README.md                            # This file
 ```
 
 ## Methodology
@@ -103,6 +106,8 @@ seaborn
 openpyxl
 joblib
 paho-mqtt
+tkinter (usually included with Python)
+pyserial
 ```
 
 Install dependencies:
@@ -113,7 +118,7 @@ pip install -r requirements.txt
 ### Training Classification Models
 
 ```bash
-python train_classification.py
+python main/train_classification.py
 ```
 
 This script performs the following operations:
@@ -131,7 +136,7 @@ This script performs the following operations:
 ### Training Regression Models
 
 ```bash
-python train_regression.py
+python main/train_regression.py
 ```
 
 This script executes the following workflow:
@@ -146,20 +151,20 @@ This script executes the following workflow:
 - `output_results/regression/excel/` - Regression statistics and predictions
 - `output_results/regression/plots/` - Model predictions and performance visualizations
 
-### Real-Time Inference Interface
+### Real-Time Inference Interface (Publisher)
 
 ```bash
-python inference_SVR.py
+python main/inference_SVR.py
 ```
 
-This module provides a graphical user interface (GUI) for real-time concentration prediction:
+This module provides a graphical user interface (GUI) for real-time concentration prediction as a publisher:
 
 **Functionality**:
 - Serial communication with GMR sensor hardware (cross-platform: Windows, Linux, macOS)
 - Real-time data visualization with animated plots
 - Automatic magnetic field (B) conversion from sensor voltage readings
 - Calibration offset: ΔB = 5.3381V - 4.2983
-- SVR model-based concentration prediction
+- SVR model-based concentration prediction with manual model selection via dialog box
 - MQTT publisher for networked data distribution
 - Comprehensive logging and data export capabilities
 
@@ -171,6 +176,26 @@ This module provides a graphical user interface (GUI) for real-time concentratio
 - Windows: COM3 (default)
 - Linux: /dev/ttyUSB0 (default)
 - macOS: /dev/tty.usbserial-0001 (default)
+
+### Real-Time Inference Interface (Subscriber)
+
+```bash
+python main/inference_subscriber.py
+```
+
+This module provides a graphical user interface (GUI) for real-time data reception and concentration prediction as a subscriber:
+
+**Functionality**:
+- MQTT subscriber for receiving sensor data from publisher
+- Real-time data visualization with animated plots
+- Automatic concentration prediction using loaded SVR model
+- Display of detected concentration and nearest class
+- Comprehensive logging and data export capabilities (including concentration data)
+- Statistical analysis of received data
+
+**Requirements**:
+- MQTT broker connection (localhost:1883 default)
+- Compatible SVR model file (.pkl) for concentration prediction
 
 ## Model Performance Summary
 
@@ -242,6 +267,8 @@ Generated visualizations include:
 - **openpyxl**: Excel workbook generation
 - **joblib**: Model serialization
 - **paho-mqtt**: MQTT client for distributed systems
+- **tkinter**: GUI framework (standard with Python)
+- **pyserial**: Serial communication for hardware interface
 
 All dependencies are open-source and available through PyPI.
 
@@ -259,5 +286,5 @@ For inquiries regarding methodology, implementation details, or research collabo
 
 ---
 
-**Last Updated**: May 10, 2026  
-**Version**: 1.0
+**Last Updated**: May 12, 2026  
+**Version**: 1.1

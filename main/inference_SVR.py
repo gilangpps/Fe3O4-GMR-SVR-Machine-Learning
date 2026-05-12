@@ -1,7 +1,6 @@
 # GMR UIN R1A - MQTT Publisher
 # Update patch: 2026-05-10
 # Modifikasi: tampilkan konsentrasi terdeteksi dari model SVR tersimpan
-# Header GUI dibuat lebih kecil
 
 import os
 import sys
@@ -58,29 +57,69 @@ svr_model = None
 
 CONCENTRATIONS = [5, 10, 20, 30, 40, 50]
 
+# Kalibrasi untuk scaling output prediksi
+# Tegangan max: 0.92V → B_max = 5.3381*0.92 - 4.2983 ≈ 0.597 mT
+# Konsentrasi target max: >50 mg/mL
+MAX_VOLTAGE = 0.92
+TARGET_CONC_MAX = 50
+B_MAX = tegangan_ke_b(MAX_VOLTAGE)  # Calculate max B value
+CONC_PRED_CEILING = None  # Will be set after model load
+
 def load_svr_model():
-    global svr_model
+    global svr_model, CONC_PRED_CEILING
     for path in SVR_MODEL_CANDIDATES:
         if os.path.exists(path):
             try:
                 svr_model = joblib.load(path)
+                # Estimate ceiling: prediksi pada B_MAX
+                x_test = np.array([[B_MAX]], dtype=float)
+                y_ceiling = svr_model.predict(x_test)
+                CONC_PRED_CEILING = float(y_ceiling[0])
                 return path
             except Exception as e:
                 print(f"[MODEL] Gagal load {path}: {e}")
+    
+    # Jika tidak ditemukan otomatis, buka dialog box untuk memilih model
+    fp = filedialog.askopenfilename(
+        title="Pilih Model SVR (.pkl)",
+        filetypes=[("Pickle files", "*.pkl"), ("All files", "*.*")]
+    )
+    
+    if fp:
+        try:
+            svr_model = joblib.load(fp)
+            # Estimate ceiling: prediksi pada B_MAX
+            x_test = np.array([[B_MAX]], dtype=float)
+            y_ceiling = svr_model.predict(x_test)
+            CONC_PRED_CEILING = float(y_ceiling[0])
+            return fp
+        except Exception as e:
+            print(f"[MODEL] Gagal load {fp}: {e}")
+    
     svr_model = None
+    CONC_PRED_CEILING = None
     return None
 
 def prediksi_konsentrasi(b_mT):
     """
-    Menggunakan model SVR tersimpan.
+    Menggunakan model SVR tersimpan dengan scaling untuk mencapai target konsentrasi maksimum.
     Jika model adalah Pipeline, predict langsung pada raw feature.
     """
-    if svr_model is None:
+    if svr_model is None or CONC_PRED_CEILING is None:
         return None
     try:
         x = np.array([[float(b_mT)]], dtype=float)
         y_pred = svr_model.predict(x)
-        return float(y_pred[0])
+        y_pred_raw = float(y_pred[0])
+        
+        # Scale hasil prediksi agar mencapai TARGET_CONC_MAX pada B_MAX
+        # Linear scaling: y_scaled = y_raw * (TARGET_CONC_MAX / CONC_PRED_CEILING)
+        if CONC_PRED_CEILING > 0:
+            scale_factor = TARGET_CONC_MAX / CONC_PRED_CEILING
+            y_scaled = y_pred_raw * scale_factor
+            return y_scaled
+        else:
+            return y_pred_raw
     except Exception:
         return None
 
@@ -671,6 +710,9 @@ root.protocol("WM_DELETE_WINDOW", keluar)
 
 if _loaded_path:
     log(f"Model SVR loaded: {_loaded_path}")
+    if CONC_PRED_CEILING:
+        scale_factor = TARGET_CONC_MAX / CONC_PRED_CEILING
+        log(f"B_max={B_MAX:.4f}mT | Pred_ceiling={CONC_PRED_CEILING:.4f}mg/mL → Scaled_max={TARGET_CONC_MAX}mg/mL (scale={scale_factor:.4f}x)")
 else:
     log("Model SVR tidak ditemukan. Prediksi konsentrasi dinonaktifkan.")
 
